@@ -57,6 +57,14 @@ std::string describeRecordingEncoder();
 RecordingConfigResult configureRecording(int cq);
 
 /*
+ * True when configureRecording() would have to switch the profile from Simple
+ * to Advanced output mode. That switch also changes where STREAMING settings
+ * come from, which is a surprise worth confirming before it happens rather
+ * than reporting afterwards.
+ */
+bool wouldSwitchOutputMode();
+
+/*
  * Read-only check that the profile would record at the canvas size rather than
  * resampling to something else. Returns a warning to show the user, or an empty
  * string when the recording is 1:1. Used when the dock has not been asked to

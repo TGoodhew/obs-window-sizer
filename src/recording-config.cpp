@@ -166,6 +166,16 @@ std::string checkRecordingScaling(int canvasWidth, int canvasHeight)
 	       "or clear Settings > Output > Recording > Rescale Output.";
 }
 
+bool wouldSwitchOutputMode()
+{
+	config_t *config = obs_frontend_get_profile_config();
+	if (!config)
+		return false;
+
+	const char *mode = config_get_string(config, "Output", "Mode");
+	return !mode || strcmp(mode, "Advanced") != 0;
+}
+
 RecordingConfigResult configureRecording(int cq)
 {
 	RecordingConfigResult result;

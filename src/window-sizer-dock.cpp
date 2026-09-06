@@ -20,6 +20,7 @@ See LICENSE in the project root for the full licence text.
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMessageBox>
 #include <QMetaObject>
 #include <QPushButton>
 #include <QSignalBlocker>
@@ -663,18 +664,42 @@ void WindowSizerDock::onApply()
 		recordingNote = QString::fromStdString(
 			ws::checkRecordingScaling(outcome.achievedWidth, outcome.achievedHeight));
 	} else {
-		const ws::RecordingConfigResult rec = ws::configureRecording(m_cqSpin->value());
-		if (!rec.ok) {
-			recordingNote =
-				QStringLiteral(" Recording NOT configured: %1").arg(QString::fromStdString(rec.message));
-		} else if (rec.requiresRestart) {
-			recordingNote = QStringLiteral(" Recording set to %1 - restart OBS for the "
-						       "Simple-to-Advanced output mode switch to take effect.")
-						.arg(QString::fromStdString(rec.encoderId));
+		/*
+		 * Switching a profile from Simple to Advanced also changes where
+		 * STREAMING settings are read from, which is not what anyone
+		 * ticking a recording checkbox expects. Confirm before doing it,
+		 * rather than reporting it afterwards. See issue #11.
+		 */
+		bool proceed = true;
+		if (ws::wouldSwitchOutputMode()) {
+			QMessageBox box(this);
+			box.setWindowTitle(obs_module_text("WindowSizer.OutputMode.Title"));
+			box.setIcon(QMessageBox::Warning);
+			box.setTextFormat(Qt::RichText);
+			box.setText(obs_module_text("WindowSizer.OutputMode.Text"));
+			box.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
+			box.setDefaultButton(QMessageBox::No);
+			proceed = (box.exec() == QMessageBox::Yes);
+		}
+
+		if (!proceed) {
+			obs_log(LOG_INFO, "output mode switch declined; recording configuration left alone");
+			recordingNote = QStringLiteral(" Recording settings left unchanged - the switch to "
+						       "Advanced output mode was declined.");
 		} else {
-			recordingNote = QStringLiteral(" Recording set to %1 (CQ %2).")
-						.arg(QString::fromStdString(rec.encoderId))
-						.arg(m_cqSpin->value());
+			const ws::RecordingConfigResult rec = ws::configureRecording(m_cqSpin->value());
+			if (!rec.ok) {
+				recordingNote = QStringLiteral(" Recording NOT configured: %1")
+							.arg(QString::fromStdString(rec.message));
+			} else if (rec.requiresRestart) {
+				recordingNote = QStringLiteral(" Recording set to %1 - restart OBS for the "
+							       "Simple-to-Advanced output mode switch to take effect.")
+							.arg(QString::fromStdString(rec.encoderId));
+			} else {
+				recordingNote = QStringLiteral(" Recording set to %1 (CQ %2).")
+							.arg(QString::fromStdString(rec.encoderId))
+							.arg(m_cqSpin->value());
+			}
 		}
 	}
 
