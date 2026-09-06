@@ -1,0 +1,48 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "configure",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--preset", "windows-x64"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": []
+    },
+    {
+      "label": "build",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "--preset", "windows-x64"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "group": {"kind": "build", "isDefault": true},
+      "problemMatcher": ["$msCompile"]
+    },
+    {
+      "label": "build-debug",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "--preset", "windows-x64-debug"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": ["$msCompile"]
+    },
+    {
+      "label": "deploy",
+      "type": "shell",
+      "command": "pwsh",
+      "args": ["-NoProfile", "-File", "${workspaceFolder}/deploy.ps1"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "dependsOn": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "deploy-debug",
+      "type": "shell",
+      "command": "pwsh",
+      "args": ["-NoProfile", "-File", "${workspaceFolder}/deploy.ps1", "-Configuration", "Debug"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "dependsOn": "build-debug",
+      "problemMatcher": []
+    }
+  ]
+}

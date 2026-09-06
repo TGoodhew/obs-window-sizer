@@ -1,0 +1,37 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Launch OBS with obs-window-sizer (RelWithDebInfo)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "C:/Program Files/obs-studio/bin/64bit/obs64.exe",
+      "args": ["--disable-shutdown-check"],
+      "stopAtEntry": false,
+      "cwd": "C:/Program Files/obs-studio/bin/64bit",
+      "environment": [],
+      "console": "internalConsole",
+      "symbolSearchPath": "${workspaceFolder}/build_x64/rundir/RelWithDebInfo",
+      "preLaunchTask": "deploy"
+    },
+    {
+      "name": "Launch OBS with obs-window-sizer (Debug)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "C:/Program Files/obs-studio/bin/64bit/obs64.exe",
+      "args": ["--disable-shutdown-check"],
+      "stopAtEntry": false,
+      "cwd": "C:/Program Files/obs-studio/bin/64bit",
+      "environment": [],
+      "console": "internalConsole",
+      "symbolSearchPath": "${workspaceFolder}/build_x64/rundir/Debug",
+      "preLaunchTask": "deploy-debug"
+    },
+    {
+      "name": "Attach to running OBS",
+      "type": "cppvsdbg",
+      "request": "attach",
+      "processId": "${command:pickProcess}"
+    }
+  ]
+}
