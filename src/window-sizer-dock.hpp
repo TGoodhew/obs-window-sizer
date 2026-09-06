@@ -36,6 +36,9 @@ public slots:
 	 * property list, preserving the current selection where possible. */
 	void refreshWindows();
 
+	/* Repopulates the list of window capture sources in the current scene. */
+	void refreshCaptureSources();
+
 private slots:
 	/* Coalesces refresh requests. OBS raises several frontend events in
 	 * quick succession at startup and on scene changes, and refreshing on
@@ -52,12 +55,14 @@ private:
 
 	/* The Apply pipeline, split so each step can report its own failure. */
 	bool applyCanvasSize(int width, int height, QString &error);
-	bool applyCaptureSource(const QString &windowValue, bool clientArea, int priority, QString &error);
+	bool applyCaptureSource(const QString &windowValue, bool clientArea, int priority, const QString &sourceName,
+				QString &configured, bool &created, QString &error);
 
 	static void onFrontendEvent(enum obs_frontend_event event, void *data);
 
 	QComboBox *m_windowCombo = nullptr;
 	QPushButton *m_refreshButton = nullptr;
+	QComboBox *m_sourceCombo = nullptr;
 	QComboBox *m_presetCombo = nullptr;
 	QSpinBox *m_widthSpin = nullptr;
 	QSpinBox *m_heightSpin = nullptr;

@@ -43,6 +43,11 @@ constexpr const char *kWindowCaptureId = "window_capture";
 /* The name given to a capture source when the plugin has to create one. */
 constexpr const char *kCreatedSourceName = "Window Sizer Capture";
 
+/* Special values in the capture-source combo. Real entries carry the source
+ * name, so these cannot collide with one. */
+constexpr const char *kCreateNewSource = "\x01create-new";
+constexpr const char *kChooseSource = "";
+
 /*
  * QComboBox truncates its closed-state text rather than eliding it, and
  * setTextElideMode() only affects the dropdown list. Window titles are
@@ -93,29 +98,28 @@ constexpr Preset kPresets[] = {
 constexpr int kDefaultPresetIndex = 1;
 constexpr int kPresetCount = (int)(sizeof(kPresets) / sizeof(kPresets[0]));
 
-/* Result of hunting for a window capture source in the current scene. Both
- * members carry a reference the caller must release. */
-struct FoundCapture {
-	obs_source_t *source = nullptr;
-	obs_sceneitem_t *item = nullptr;
-};
-
-bool findCaptureItem(obs_scene_t *, obs_sceneitem_t *item, void *param)
+/*
+ * Collects every window capture source in the scene. The dock offers a choice
+ * rather than driving whichever happens to be enumerated first, which would
+ * silently repoint a source the user never selected. See issue #10.
+ */
+bool collectCaptureNames(obs_scene_t *, obs_sceneitem_t *item, void *param)
 {
-	auto *found = static_cast<FoundCapture *>(param);
+	auto *names = static_cast<QStringList *>(param);
 
 	obs_source_t *source = obs_sceneitem_get_source(item);
 	if (!source)
-		return true; /* keep looking */
+		return true;
 
 	const char *id = obs_source_get_unversioned_id(source);
 	if (!id || strcmp(id, kWindowCaptureId) != 0)
 		return true;
 
-	found->source = obs_source_get_ref(source);
-	obs_sceneitem_addref(item);
-	found->item = item;
-	return false; /* stop enumerating */
+	const char *name = obs_source_get_name(source);
+	if (name && *name)
+		*names << QString::fromUtf8(name);
+
+	return true; /* keep going - we want all of them */
 }
 
 /*
@@ -234,6 +238,13 @@ void WindowSizerDock::buildUi()
 	windowRow->addWidget(m_windowCombo, 1);
 	windowRow->addWidget(m_refreshButton, 0);
 	form->addRow(obs_module_text("WindowSizer.TargetWindow"), windowRow);
+
+	/* Capture source -------------------------------------------------- */
+	m_sourceCombo = new ElidingComboBox(this);
+	m_sourceCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+	m_sourceCombo->setMinimumContentsLength(16);
+	m_sourceCombo->setToolTip(obs_module_text("WindowSizer.Source.Tip"));
+	form->addRow(obs_module_text("WindowSizer.Source"), m_sourceCombo);
 
 	/* Size ----------------------------------------------------------- */
 	m_presetCombo = new QComboBox(this);
@@ -395,6 +406,49 @@ void WindowSizerDock::setStatus(const QString &text, bool isError)
 	m_statusLabel->setStyleSheet(isError ? QStringLiteral("color: #d9534f;") : QString());
 }
 
+void WindowSizerDock::refreshCaptureSources()
+{
+	const QString previous = m_sourceCombo->currentData().toString();
+
+	QSignalBlocker block(m_sourceCombo);
+	m_sourceCombo->clear();
+
+	QStringList names;
+	obs_source_t *sceneSource = obs_frontend_get_current_scene();
+	if (sceneSource) {
+		obs_scene_t *scene = obs_scene_from_source(sceneSource);
+		if (scene)
+			obs_scene_enum_items(scene, collectCaptureNames, &names);
+		obs_source_release(sceneSource);
+	}
+
+	/*
+	 * With more than one capture in the scene there is no safe default, so
+	 * lead with a placeholder that Apply refuses. With exactly one, or none,
+	 * the obvious choice is preselected and nothing extra is asked of the
+	 * user. See issue #10.
+	 */
+	if (names.size() > 1)
+		m_sourceCombo->addItem(obs_module_text("WindowSizer.Source.Choose"), QString::fromUtf8(kChooseSource));
+
+	for (const QString &name : names)
+		m_sourceCombo->addItem(name, name);
+
+	m_sourceCombo->addItem(obs_module_text("WindowSizer.Source.CreateNew"), QString::fromUtf8(kCreateNewSource));
+
+	int index = -1;
+	if (!previous.isEmpty())
+		index = m_sourceCombo->findData(previous);
+	if (index < 0 && names.size() == 1)
+		index = m_sourceCombo->findData(names.first());
+	if (index < 0 && names.isEmpty())
+		index = m_sourceCombo->findData(QString::fromUtf8(kCreateNewSource));
+
+	m_sourceCombo->setCurrentIndex(index >= 0 ? index : 0);
+
+	obs_log(LOG_INFO, "capture sources in scene: %d", (int)names.size());
+}
+
 void WindowSizerDock::refreshWindows()
 {
 	const QString previous = m_windowCombo->currentData().toString();
@@ -456,6 +510,8 @@ void WindowSizerDock::refreshWindows()
 	}
 
 	obs_log(LOG_INFO, "window list refreshed, %d capturable window(s)", m_windowCombo->count());
+
+	refreshCaptureSources();
 }
 
 bool WindowSizerDock::applyCanvasSize(int width, int height, QString &error)
@@ -491,7 +547,8 @@ bool WindowSizerDock::applyCanvasSize(int width, int height, QString &error)
 	return true;
 }
 
-bool WindowSizerDock::applyCaptureSource(const QString &windowValue, bool clientArea, int priority, QString &error)
+bool WindowSizerDock::applyCaptureSource(const QString &windowValue, bool clientArea, int priority,
+					 const QString &sourceName, QString &configured, bool &created, QString &error)
 {
 	obs_source_t *sceneSource = obs_frontend_get_current_scene();
 	if (!sceneSource) {
@@ -506,52 +563,68 @@ bool WindowSizerDock::applyCaptureSource(const QString &windowValue, bool client
 		return false;
 	}
 
-	FoundCapture found;
-	obs_scene_enum_items(scene, findCaptureItem, &found);
+	obs_source_t *source = nullptr;
+	obs_sceneitem_t *item = nullptr;
+	created = false;
 
-	bool created = false;
-	if (!found.source) {
-		obs_data_t *settings = obs_data_create();
-		obs_data_set_string(settings, "window", windowValue.toUtf8().constData());
-		obs_data_set_bool(settings, "client_area", clientArea);
-		obs_data_set_int(settings, "priority", priority);
+	obs_data_t *settings = obs_data_create();
+	obs_data_set_string(settings, "window", windowValue.toUtf8().constData());
+	obs_data_set_bool(settings, "client_area", clientArea);
+	obs_data_set_int(settings, "priority", priority);
 
-		found.source = obs_source_create(kWindowCaptureId, kCreatedSourceName, settings, nullptr);
-		obs_data_release(settings);
-
-		if (!found.source) {
+	if (sourceName == QString::fromUtf8(kCreateNewSource)) {
+		source = obs_source_create(kWindowCaptureId, kCreatedSourceName, settings, nullptr);
+		if (!source) {
+			obs_data_release(settings);
 			obs_source_release(sceneSource);
 			error = QStringLiteral("Could not create a window capture source.");
 			return false;
 		}
-
-		found.item = obs_scene_add(scene, found.source);
-		if (found.item)
-			obs_sceneitem_addref(found.item);
+		item = obs_scene_add(scene, source);
+		if (item)
+			obs_sceneitem_addref(item);
 		created = true;
 	} else {
-		obs_data_t *settings = obs_data_create();
-		obs_data_set_string(settings, "window", windowValue.toUtf8().constData());
-		obs_data_set_bool(settings, "client_area", clientArea);
-		obs_data_set_int(settings, "priority", priority);
-		obs_source_update(found.source, settings);
-		obs_data_release(settings);
+		/* Named lookup, so the source configured is the one chosen even
+		 * when the scene holds several. */
+		item = obs_scene_find_source(scene, sourceName.toUtf8().constData());
+		if (!item) {
+			obs_data_release(settings);
+			obs_source_release(sceneSource);
+			error = QStringLiteral("Capture source '%1' is no longer in this scene. Press Refresh.")
+					.arg(sourceName);
+			return false;
+		}
+		obs_sceneitem_addref(item);
+		source = obs_source_get_ref(obs_sceneitem_get_source(item));
+		if (!source) {
+			obs_sceneitem_release(item);
+			obs_data_release(settings);
+			obs_source_release(sceneSource);
+			error = QStringLiteral("Capture source '%1' has no source behind it.").arg(sourceName);
+			return false;
+		}
+		obs_source_update(source, settings);
 	}
+
+	obs_data_release(settings);
+
+	configured = QString::fromUtf8(obs_source_get_name(source));
 
 	/* Log the settings actually in effect. The key names for capture
 	 * method, client area and cursor have moved between OBS versions, so
 	 * this is worth having in the log when something looks wrong. */
-	obs_data_t *effective = obs_source_get_settings(found.source);
+	obs_data_t *effective = obs_source_get_settings(source);
 	if (effective) {
-		obs_log(LOG_INFO, "capture source '%s' (%s) settings: %s", obs_source_get_name(found.source),
+		obs_log(LOG_INFO, "capture source '%s' (%s) settings: %s", obs_source_get_name(source),
 			created ? "created" : "updated", obs_data_get_json(effective));
 		obs_data_release(effective);
 	}
 
 	/* Reset the transform so the capture lands 1:1 at the canvas origin. */
-	if (found.item) {
+	if (item) {
 		struct obs_transform_info info = {};
-		obs_sceneitem_get_info2(found.item, &info);
+		obs_sceneitem_get_info2(item, &info);
 
 		info.pos.x = 0.0f;
 		info.pos.y = 0.0f;
@@ -564,19 +637,19 @@ bool WindowSizerDock::applyCaptureSource(const QString &windowValue, bool client
 		info.bounds.x = 0.0f;
 		info.bounds.y = 0.0f;
 		info.crop_to_bounds = false;
-		obs_sceneitem_set_info2(found.item, &info);
+		obs_sceneitem_set_info2(item, &info);
 
 		struct obs_sceneitem_crop crop = {};
-		obs_sceneitem_set_crop(found.item, &crop);
+		obs_sceneitem_set_crop(item, &crop);
 
 		obs_log(LOG_INFO, "transform reset: pos 0,0 scale 1.0 align top-left bounds none crop 0");
 	} else {
 		obs_log(LOG_WARNING, "capture source has no scene item; transform not reset");
 	}
 
-	if (found.item)
-		obs_sceneitem_release(found.item);
-	obs_source_release(found.source);
+	if (item)
+		obs_sceneitem_release(item);
+	obs_source_release(source);
 	obs_source_release(sceneSource);
 	return true;
 }
@@ -600,6 +673,12 @@ void WindowSizerDock::onApply()
 	const QString windowValue = m_windowCombo->currentData().toString();
 	if (windowValue.isEmpty()) {
 		setStatus(QStringLiteral("Choose a target window first."), true);
+		return;
+	}
+
+	const QString sourceChoice = m_sourceCombo->currentData().toString();
+	if (sourceChoice.isEmpty()) {
+		setStatus(obs_module_text("WindowSizer.Status.ChooseSource"), true);
 		return;
 	}
 
@@ -647,9 +726,27 @@ void WindowSizerDock::onApply()
 	}
 
 	/* Step 4 and 5 - capture source settings and transform. */
-	if (!applyCaptureSource(windowValue, clientArea, priority, error)) {
+	QString configuredSource;
+	bool createdSource = false;
+	if (!applyCaptureSource(windowValue, clientArea, priority, sourceChoice, configuredSource, createdSource,
+				error)) {
 		setStatus(error, true);
 		return;
+	}
+
+	/*
+	 * Adding a source to a scene raises no frontend event, so the combo
+	 * would still say "Create a new capture source" and a second Apply
+	 * would make a second one. Rebuild the list and select what was just
+	 * configured.
+	 */
+	if (createdSource) {
+		refreshCaptureSources();
+		const int index = m_sourceCombo->findData(configuredSource);
+		if (index >= 0) {
+			QSignalBlocker block(m_sourceCombo);
+			m_sourceCombo->setCurrentIndex(index);
+		}
 	}
 
 	/*
@@ -714,6 +811,10 @@ void WindowSizerDock::onApply()
 	if (!canvasNote.isEmpty())
 		obs_log(LOG_WARNING, "%s", canvasNote.trimmed().toUtf8().constData());
 
+	const QString sourceNote =
+		QStringLiteral(" Source: %1%2.")
+			.arg(configuredSource, createdSource ? QStringLiteral(" (created)") : QString());
+
 	QString parityNote;
 	if ((outcome.achievedWidth % 4) != 0 || (outcome.achievedHeight % 2) != 0) {
 		parityNote = QStringLiteral(" Note: %1x%2 is not a multiple of 4x2, which some encoders "
@@ -729,7 +830,7 @@ void WindowSizerDock::onApply()
 				 .arg(outcome.achievedWidth)
 				 .arg(outcome.achievedHeight)
 				 .arg(clientArea ? QStringLiteral("client area") : QStringLiteral("visible frame"));
-		setStatus(status + canvasNote + parityNote + recordingNote, false);
+		setStatus(status + sourceNote + canvasNote + parityNote + recordingNote, false);
 	} else {
 		status = QStringLiteral("Window refused %1 x %2 and settled at %3 x %4 "
 					"(minimum size or fixed aspect ratio). Canvas set to %3 x %4 to match.")
@@ -737,7 +838,7 @@ void WindowSizerDock::onApply()
 				 .arg(outcome.requestedHeight)
 				 .arg(outcome.achievedWidth)
 				 .arg(outcome.achievedHeight);
-		setStatus(status + canvasNote + parityNote + recordingNote, true);
+		setStatus(status + sourceNote + canvasNote + parityNote + recordingNote, true);
 	}
 
 	if (outcome.restoredFromMaximized)
