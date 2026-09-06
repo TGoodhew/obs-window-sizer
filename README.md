@@ -28,7 +28,9 @@ Two things make matching a window to a canvas harder than it looks:
 
 This plugin measures the real visible frame with the compositor's own
 `DWMWA_EXTENDED_FRAME_BOUNDS`, works entirely in physical pixels, and corrects
-for both. See [how it works](docs/how-it-works.md).
+for both. Verified at **100% and 150%** display scaling: a 1920x1080 request
+produces exactly 1920x1080 physical pixels at both. See
+[how it works](docs/how-it-works.md).
 
 ## Requirements
 
@@ -133,13 +135,10 @@ left alone in that case.
 
 ## Known limitations
 
-- **The DPI handling has only ever been exercised at 100% display scaling**
-  ([#5](https://github.com/TGoodhew/obs-window-sizer/issues/5)). It is written
-  to work at any scaling, but that is reasoning rather than evidence, and a
-  failure here would look like a slightly soft capture rather than an error.
 - **Mixed-DPI multi-monitor setups are unverified** - a target window on a
   second display with a different scale factor, or dragged between displays.
-  Not testable on the hardware available.
+  Not testable on the hardware available, so this is reasoning rather than
+  evidence ([#5](https://github.com/TGoodhew/obs-window-sizer/issues/5)).
 - Only the **main canvas** is matched. If a scene collection has more than one
   canvas the dock says so, but the others are left unchanged.
 

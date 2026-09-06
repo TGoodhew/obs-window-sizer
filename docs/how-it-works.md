@@ -55,8 +55,11 @@ measurement and every resize runs inside `DpiScope`, which pins the calling
 thread to `DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2` and restores the previous
 context on the way out. Inside that scope all three measurements agree.
 
-> This path is currently only tested at 100% scaling. See
-> [issue #5](https://github.com/TGoodhew/obs-window-sizer/issues/5).
+> Verified at 100% and 150% scaling: a 1920x1080 request produces exactly
+> 1920x1080 physical pixels at both, in client-area and visible-frame modes.
+> The shadow delta itself scales - 14x7 at 100%, 18x9 at 150% - which is why it
+> is measured on every pass rather than assumed. Mixed-DPI multi-monitor
+> remains untested ([#5](https://github.com/TGoodhew/obs-window-sizer/issues/5)).
 
 ## Why the window list is not built here
 
