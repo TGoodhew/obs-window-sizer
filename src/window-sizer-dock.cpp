@@ -32,7 +32,7 @@ See LICENSE in the project root for the full licence text.
 namespace {
 
 /* The source type we drive. Confirmed registered as "window_capture" by
- * plugins/win-capture/window-capture.c in OBS 32.2.1. */
+ * plugins/win-capture/window-capture.c in OBS 32.2.2. */
 constexpr const char *kWindowCaptureId = "window_capture";
 
 /* The name given to a capture source when the plugin has to create one. */
@@ -327,7 +327,7 @@ void WindowSizerDock::refreshWindows()
 	 * makes them correct by definition.
 	 *
 	 * obs_get_source_properties() builds the property list without a source
-	 * instance. Verified safe for window_capture in OBS 32.2.1: its
+	 * instance. Verified safe for window_capture in OBS 32.2.2: its
 	 * wc_properties() null-checks its data pointer, and both of its
 	 * modified callbacks bail out early when the param is null.
 	 */
