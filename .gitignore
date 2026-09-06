@@ -14,6 +14,7 @@
 !CMakeLists.txt
 !CMakePresets.json
 !LICENSE
+!THIRD-PARTY-NOTICES.md
 !README.md
 
 # Exclude lock files

@@ -304,7 +304,8 @@ and start clean — both are disposable and git-ignored.
 
 ## Licence
 
-MIT - see [LICENSE](LICENSE).
+MIT - see [LICENSE](LICENSE), with third-party notices in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 Two caveats worth stating plainly:
 

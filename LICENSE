@@ -19,21 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-Third-party components retained from obs-plugintemplate
-(https://github.com/obsproject/obs-plugintemplate), which is licensed
-GPL-2.0-or-later:
-
-    cmake/**
-    src/plugin-support.h
-    src/plugin-support.c.in
-
-Those files keep their original licence and are not covered by the MIT grant
-above.
-
-This plugin links against libobs and obs-frontend-api, which are
-GPL-2.0-or-later. MIT is compatible with the GPL, so this source may be
-licensed as above, but note that a compiled and distributed binary combining it
-with libobs is still subject to the GPL's terms.
