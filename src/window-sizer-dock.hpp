@@ -49,6 +49,10 @@ private slots:
 	void onSizeEdited();
 	void onApply();
 
+	/* Any user-driven change makes the dock worth persisting. Programmatic
+	 * updates go through QSignalBlocker, so they do not set this. */
+	void markDirty();
+
 private:
 	void buildUi();
 	void setStatus(const QString &text, bool isError);
@@ -59,6 +63,12 @@ private:
 				QString &configured, bool &created, QString &error);
 
 	static void onFrontendEvent(enum obs_frontend_event event, void *data);
+
+	/* Persisted with the scene collection, since the target window tends to
+	 * belong with the scene rather than with OBS as a whole. */
+	static void onFrontendSave(obs_data_t *save_data, bool saving, void *data);
+	void saveState(obs_data_t *obj) const;
+	void loadState(obs_data_t *obj);
 
 	QComboBox *m_windowCombo = nullptr;
 	QPushButton *m_refreshButton = nullptr;
@@ -76,4 +86,14 @@ private:
 	/* Guards the preset combo from flipping to Custom while we are the ones
 	 * writing the spin boxes. */
 	bool m_updatingSize = false;
+
+	/* Nothing is written for a dock the user has never touched. */
+	bool m_dirty = false;
+	bool m_hasSavedState = false;
+
+	/* Restored selections, applied once their lists have been populated -
+	 * the window list arrives asynchronously after the scene collection has
+	 * already loaded. */
+	QString m_pendingWindow;
+	QString m_pendingSource;
 };

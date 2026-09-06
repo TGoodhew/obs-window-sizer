@@ -48,6 +48,9 @@ constexpr const char *kCreatedSourceName = "Window Sizer Capture";
 constexpr const char *kCreateNewSource = "\x01create-new";
 constexpr const char *kChooseSource = "";
 
+/* Key in the scene collection save data. */
+constexpr const char *kSaveKey = "obs-window-sizer";
+
 /*
  * QComboBox truncates its closed-state text rather than eliding it, and
  * setTextElideMode() only affects the dropdown list. Window titles are
@@ -183,11 +186,13 @@ WindowSizerDock::WindowSizerDock(QWidget *parent) : QWidget(parent)
 	 * Refreshing here would run before win-capture is necessarily loaded and
 	 * would show a spurious error on startup. */
 	obs_frontend_add_event_callback(onFrontendEvent, this);
+	obs_frontend_add_save_callback(onFrontendSave, this);
 }
 
 WindowSizerDock::~WindowSizerDock()
 {
 	obs_frontend_remove_event_callback(onFrontendEvent, this);
+	obs_frontend_remove_save_callback(onFrontendSave, this);
 }
 
 void WindowSizerDock::scheduleRefresh()
@@ -363,6 +368,16 @@ void WindowSizerDock::buildUi()
 	connect(m_widthSpin, &QSpinBox::valueChanged, this, &WindowSizerDock::onSizeEdited);
 	connect(m_heightSpin, &QSpinBox::valueChanged, this, &WindowSizerDock::onSizeEdited);
 	connect(m_configureRecordingCheck, &QCheckBox::toggled, m_cqSpin, &QSpinBox::setEnabled);
+
+	/* Persist only what the user has actually chosen. */
+	connect(m_windowCombo, &QComboBox::currentIndexChanged, this, &WindowSizerDock::markDirty);
+	connect(m_sourceCombo, &QComboBox::currentIndexChanged, this, &WindowSizerDock::markDirty);
+	connect(m_presetCombo, &QComboBox::currentIndexChanged, this, &WindowSizerDock::markDirty);
+	connect(m_widthSpin, &QSpinBox::valueChanged, this, &WindowSizerDock::markDirty);
+	connect(m_heightSpin, &QSpinBox::valueChanged, this, &WindowSizerDock::markDirty);
+	connect(m_clientAreaCheck, &QCheckBox::toggled, this, &WindowSizerDock::markDirty);
+	connect(m_configureRecordingCheck, &QCheckBox::toggled, this, &WindowSizerDock::markDirty);
+	connect(m_cqSpin, &QSpinBox::valueChanged, this, &WindowSizerDock::markDirty);
 }
 
 void WindowSizerDock::onPresetChanged(int index)
@@ -444,6 +459,13 @@ void WindowSizerDock::refreshCaptureSources()
 	if (index < 0 && names.isEmpty())
 		index = m_sourceCombo->findData(QString::fromUtf8(kCreateNewSource));
 
+	if (!m_pendingSource.isEmpty()) {
+		const int restored = m_sourceCombo->findData(m_pendingSource);
+		if (restored >= 0)
+			index = restored;
+		m_pendingSource.clear();
+	}
+
 	m_sourceCombo->setCurrentIndex(index >= 0 ? index : 0);
 
 	obs_log(LOG_INFO, "capture sources in scene: %d", (int)names.size());
@@ -507,6 +529,23 @@ void WindowSizerDock::refreshWindows()
 		const int index = m_windowCombo->findData(previous);
 		if (index >= 0)
 			m_windowCombo->setCurrentIndex(index);
+	}
+
+	/*
+	 * Apply a remembered selection now the list exists. Attempted once: if
+	 * the window is not open, say so rather than silently selecting
+	 * something else, and stop trying.
+	 */
+	if (!m_pendingWindow.isEmpty()) {
+		const int restored = m_windowCombo->findData(m_pendingWindow);
+		if (restored >= 0) {
+			m_windowCombo->setCurrentIndex(restored);
+			obs_log(LOG_INFO, "restored target window selection");
+		} else {
+			setStatus(obs_module_text("WindowSizer.Status.RememberedWindowGone"), false);
+			obs_log(LOG_INFO, "remembered target window is not currently open");
+		}
+		m_pendingWindow.clear();
 	}
 
 	obs_log(LOG_INFO, "window list refreshed, %d capturable window(s)", m_windowCombo->count());
@@ -843,6 +882,100 @@ void WindowSizerDock::onApply()
 
 	if (outcome.restoredFromMaximized)
 		obs_log(LOG_INFO, "target window was maximized or minimized and was restored first");
+}
+
+void WindowSizerDock::markDirty()
+{
+	m_dirty = true;
+}
+
+void WindowSizerDock::saveState(obs_data_t *obj) const
+{
+	obs_data_set_string(obj, "window", m_windowCombo->currentData().toString().toUtf8().constData());
+	obs_data_set_string(obj, "source", m_sourceCombo->currentData().toString().toUtf8().constData());
+	obs_data_set_int(obj, "width", m_widthSpin->value());
+	obs_data_set_int(obj, "height", m_heightSpin->value());
+	obs_data_set_bool(obj, "client_area", m_clientAreaCheck->isChecked());
+	obs_data_set_bool(obj, "configure_recording", m_configureRecordingCheck->isChecked());
+	obs_data_set_int(obj, "cq", m_cqSpin->value());
+}
+
+void WindowSizerDock::loadState(obs_data_t *obj)
+{
+	/* Sizes first - they need no list to be populated. Blocked so restoring
+	 * does not look like the user editing. */
+	{
+		QSignalBlocker blockWidth(m_widthSpin);
+		QSignalBlocker blockHeight(m_heightSpin);
+		const int width = (int)obs_data_get_int(obj, "width");
+		const int height = (int)obs_data_get_int(obj, "height");
+		if (width > 0)
+			m_widthSpin->setValue(width);
+		if (height > 0)
+			m_heightSpin->setValue(height);
+	}
+	onSizeEdited(); /* resync the preset box to the restored numbers */
+
+	{
+		QSignalBlocker blockClient(m_clientAreaCheck);
+		m_clientAreaCheck->setChecked(obs_data_get_bool(obj, "client_area"));
+	}
+
+	if (m_configureRecordingCheck->isEnabled()) {
+		/* toggled() drives the CQ box's enabled state, so this one is
+		 * deliberately not blocked. */
+		m_configureRecordingCheck->setChecked(obs_data_get_bool(obj, "configure_recording"));
+	}
+
+	{
+		QSignalBlocker blockCq(m_cqSpin);
+		const int cq = (int)obs_data_get_int(obj, "cq");
+		if (cq > 0)
+			m_cqSpin->setValue(cq);
+	}
+
+	/* The window and source lists are not populated yet, so remember these
+	 * and apply them when the lists arrive. */
+	m_pendingWindow = QString::fromUtf8(obs_data_get_string(obj, "window"));
+	m_pendingSource = QString::fromUtf8(obs_data_get_string(obj, "source"));
+
+	m_dirty = false;
+	m_hasSavedState = true;
+}
+
+void WindowSizerDock::onFrontendSave(obs_data_t *save_data, bool saving, void *data)
+{
+	auto *dock = static_cast<WindowSizerDock *>(data);
+
+	if (saving) {
+		/* Write nothing for a dock nobody has touched, so an untouched
+		 * scene collection is not modified just by having the plugin
+		 * installed. */
+		if (!dock->m_dirty && !dock->m_hasSavedState)
+			return;
+
+		obs_data_t *obj = obs_data_create();
+		dock->saveState(obj);
+		obs_data_set_obj(save_data, kSaveKey, obj);
+		obs_data_release(obj);
+		dock->m_hasSavedState = true;
+		return;
+	}
+
+	obs_data_t *obj = obs_data_get_obj(save_data, kSaveKey);
+	if (!obj) {
+		/* A scene collection with no saved state: start clean rather
+		 * than carrying the previous collection's selections over. */
+		dock->m_pendingWindow.clear();
+		dock->m_pendingSource.clear();
+		dock->m_dirty = false;
+		dock->m_hasSavedState = false;
+		return;
+	}
+
+	dock->loadState(obj);
+	obs_data_release(obj);
+	obs_log(LOG_INFO, "restored dock state for this scene collection");
 }
 
 void WindowSizerDock::onFrontendEvent(enum obs_frontend_event event, void *data)
