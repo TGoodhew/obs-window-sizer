@@ -33,3 +33,5 @@
 !/docs
 /.deps
 /build_x64
+/dist
+!/package.ps1
