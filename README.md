@@ -133,16 +133,15 @@ left alone in that case.
 
 ## Known limitations
 
-- The DPI handling is only well tested at 100% scaling on a single monitor
-  ([#5](https://github.com/TGoodhew/obs-window-sizer/issues/5)).
-- Only the main canvas is handled; OBS 32 multi-canvas is ignored
-  ([#9](https://github.com/TGoodhew/obs-window-sizer/issues/9)).
-- With several Window Capture sources in a scene, the first is used without
-  asking ([#10](https://github.com/TGoodhew/obs-window-sizer/issues/10)).
-- The dock does not remember its settings between sessions
-  ([#4](https://github.com/TGoodhew/obs-window-sizer/issues/4)).
-- Some text in the dock is still clipped
-  ([#7](https://github.com/TGoodhew/obs-window-sizer/issues/7)).
+- **The DPI handling has only ever been exercised at 100% display scaling**
+  ([#5](https://github.com/TGoodhew/obs-window-sizer/issues/5)). It is written
+  to work at any scaling, but that is reasoning rather than evidence, and a
+  failure here would look like a slightly soft capture rather than an error.
+- **Mixed-DPI multi-monitor setups are unverified** - a target window on a
+  second display with a different scale factor, or dragged between displays.
+  Not testable on the hardware available.
+- Only the **main canvas** is matched. If a scene collection has more than one
+  canvas the dock says so, but the others are left unchanged.
 
 - **English only.** Localisation is out of scope - the UI strings live in
   `data/locale/en-US.ini`, but status and error messages are hardcoded English,
