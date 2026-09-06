@@ -96,4 +96,12 @@ private:
 	 * already loaded. */
 	QString m_pendingWindow;
 	QString m_pendingSource;
+
+	/*
+	 * The window the user actually chose, which is not the same as whatever
+	 * the combo happens to show. If the remembered window is not open at
+	 * startup the combo falls back to the first entry, and saving that would
+	 * silently discard the user's choice.
+	 */
+	QString m_rememberedWindow;
 };

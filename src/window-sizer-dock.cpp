@@ -370,7 +370,10 @@ void WindowSizerDock::buildUi()
 	connect(m_configureRecordingCheck, &QCheckBox::toggled, m_cqSpin, &QSpinBox::setEnabled);
 
 	/* Persist only what the user has actually chosen. */
-	connect(m_windowCombo, &QComboBox::currentIndexChanged, this, &WindowSizerDock::markDirty);
+	connect(m_windowCombo, &QComboBox::currentIndexChanged, this, [this](int) {
+		m_rememberedWindow = m_windowCombo->currentData().toString();
+		markDirty();
+	});
 	connect(m_sourceCombo, &QComboBox::currentIndexChanged, this, &WindowSizerDock::markDirty);
 	connect(m_presetCombo, &QComboBox::currentIndexChanged, this, &WindowSizerDock::markDirty);
 	connect(m_widthSpin, &QSpinBox::valueChanged, this, &WindowSizerDock::markDirty);
@@ -543,7 +546,8 @@ void WindowSizerDock::refreshWindows()
 			obs_log(LOG_INFO, "restored target window selection");
 		} else {
 			setStatus(obs_module_text("WindowSizer.Status.RememberedWindowGone"), false);
-			obs_log(LOG_INFO, "remembered target window is not currently open");
+			obs_log(LOG_INFO, "remembered target window is not currently open; keeping it "
+					  "remembered rather than saving the fallback selection");
 		}
 		m_pendingWindow.clear();
 	}
@@ -891,7 +895,9 @@ void WindowSizerDock::markDirty()
 
 void WindowSizerDock::saveState(obs_data_t *obj) const
 {
-	obs_data_set_string(obj, "window", m_windowCombo->currentData().toString().toUtf8().constData());
+	const QString window = m_rememberedWindow.isEmpty() ? m_windowCombo->currentData().toString()
+							    : m_rememberedWindow;
+	obs_data_set_string(obj, "window", window.toUtf8().constData());
 	obs_data_set_string(obj, "source", m_sourceCombo->currentData().toString().toUtf8().constData());
 	obs_data_set_int(obj, "width", m_widthSpin->value());
 	obs_data_set_int(obj, "height", m_heightSpin->value());
@@ -937,6 +943,7 @@ void WindowSizerDock::loadState(obs_data_t *obj)
 	/* The window and source lists are not populated yet, so remember these
 	 * and apply them when the lists arrive. */
 	m_pendingWindow = QString::fromUtf8(obs_data_get_string(obj, "window"));
+	m_rememberedWindow = m_pendingWindow;
 	m_pendingSource = QString::fromUtf8(obs_data_get_string(obj, "source"));
 
 	m_dirty = false;
