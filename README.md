@@ -39,6 +39,12 @@ for both. See [how it works](docs/how-it-works.md).
 - An NVIDIA GPU is needed only for the optional recording configuration;
   everything else works on any GPU.
 
+The plugin checks the OBS version at startup. On a **newer OBS major** than it
+was built for it disables itself and says so in a dialog rather than risking a
+crash. On an **older** one, OBS refuses to load it at all and writes
+`compiled with newer libobs` to the log - that check belongs to OBS and happens
+before any plugin code runs.
+
 ## Install
 
 1. Download `obs-window-sizer-<version>-windows-x64.zip` from

@@ -35,7 +35,7 @@
     },
     "name": "obs-window-sizer",
     "displayName": "OBS Window Sizer",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "Tony Goodhew",
     "website": "https://github.com/TGoodhew/obs-window-sizer",
     "email": "tony@schnauzergroup.com"
