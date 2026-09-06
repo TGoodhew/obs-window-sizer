@@ -30,5 +30,6 @@
 !/.vscode
 !/deploy.ps1
 !/README.md
+!/docs
 /.deps
 /build_x64

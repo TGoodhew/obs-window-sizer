@@ -14,6 +14,7 @@ See LICENSE in the project root for the full licence text.
 #include <obs-frontend-api.h>
 #include <plugin-support.h>
 
+#include <QAbstractItemView>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QFormLayout>
@@ -26,6 +27,7 @@ See LICENSE in the project root for the full licence text.
 #include <QVBoxLayout>
 
 #include <cstring>
+#include <string>
 
 namespace {
 
@@ -132,7 +134,14 @@ void WindowSizerDock::buildUi()
 	/* Target window ------------------------------------------------- */
 	m_windowCombo = new QComboBox(this);
 	m_windowCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-	m_windowCombo->setMinimumContentsLength(24);
+	m_windowCombo->setMinimumContentsLength(16);
+	/* Window titles are routinely longer than any sensible dock width. Elide
+	 * in the middle so the executable prefix and the tail of the title both
+	 * stay visible, and keep the full text available as a tooltip. */
+	m_windowCombo->view()->setTextElideMode(Qt::ElideMiddle);
+	connect(m_windowCombo, &QComboBox::currentIndexChanged, this, [this](int) {
+		m_windowCombo->setToolTip(m_windowCombo->currentText());
+	});
 
 	m_refreshButton = new QPushButton(obs_module_text("WindowSizer.Refresh"), this);
 
@@ -173,15 +182,59 @@ void WindowSizerDock::buildUi()
 	/* Recording ------------------------------------------------------ */
 	m_configureRecordingCheck = new QCheckBox(obs_module_text("WindowSizer.ConfigureRecording"), this);
 	m_configureRecordingCheck->setChecked(false);
+
+	/* Say which encoder this actually resolves to rather than leaving the
+	 * user to guess what "GPU encoding" means on their machine. */
+	const std::string encoderName = ws::describeRecordingEncoder();
+	if (encoderName.empty()) {
+		m_configureRecordingCheck->setEnabled(false);
+		m_configureRecordingCheck->setToolTip(
+			QStringLiteral("Unavailable: no NVIDIA NVENC encoder is registered on this machine."));
+	} else {
+		m_configureRecordingCheck->setToolTip(
+			QStringLiteral(
+				"<p>Rewrites OBS's recording settings so the recorded file is as close "
+				"to what you see as is practical.</p>"
+				"<p><b>Encoder:</b> %1<br>"
+				"Constant quality (CQP), two-pass quarter-res, and psycho-visual AQ "
+				"turned off so static UI text stays sharp.<br>"
+				"Recording rescale is switched off, so the file is exactly the window "
+				"size with no resampling.</p>"
+				"<p>Near-lossless rather than truly lossless: OBS records 4:2:0 colour, "
+				"which softens coloured text edges slightly.</p>"
+				"<p>This edits your OBS profile. It does not start a recording - OBS's "
+				"own Record button still does that.</p>")
+				.arg(QString::fromStdString(encoderName)));
+	}
 	form->addRow(QString(), m_configureRecordingCheck);
+
+	/*
+	 * The checkbox label has to stay short enough not to be clipped, so the
+	 * consequence that actually matters - that ticking it rewrites settings
+	 * the user may have chosen deliberately - goes in a dimmed line beneath
+	 * it where it can wrap.
+	 */
+	auto *recordingHint = new QLabel(obs_module_text("WindowSizer.ConfigureRecording.Hint"), this);
+	recordingHint->setWordWrap(true);
+	recordingHint->setEnabled(false);
+	/* A word-wrapped QLabel inside a QFormLayout is not given enough height
+	 * for its wrapped lines, and the tail gets clipped. Reserve two lines. */
+	recordingHint->setMinimumHeight(recordingHint->fontMetrics().height() * 2 + 4);
+	form->addRow(QString(), recordingHint);
 
 	m_cqSpin = new QSpinBox(this);
 	m_cqSpin->setRange(10, 30);
 	m_cqSpin->setValue(16);
 	m_cqSpin->setEnabled(false);
+	m_cqSpin->setToolTip(QStringLiteral(
+		"<p>Constant quality level. Lower is better quality and a bigger file.<br>"
+		"16 is visually lossless for UI content; 18-20 is noticeably smaller and "
+		"still good.</p>"));
 
 	auto *cqRow = new QHBoxLayout();
-	cqRow->addWidget(new QLabel(obs_module_text("WindowSizer.CQ"), this));
+	auto *cqLabel = new QLabel(obs_module_text("WindowSizer.CQ"), this);
+	cqLabel->setToolTip(m_cqSpin->toolTip());
+	cqRow->addWidget(cqLabel);
 	cqRow->addWidget(m_cqSpin, 1);
 	cqRow->addStretch(1);
 	form->addRow(QString(), cqRow);
@@ -196,9 +249,19 @@ void WindowSizerDock::buildUi()
 	m_statusLabel = new QLabel(obs_module_text("WindowSizer.Status.Ready"), this);
 	m_statusLabel->setWordWrap(true);
 	m_statusLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+	/* Apply can produce a long message - a refusal, plus an odd-dimension
+	 * warning, plus the recording result. Reserve room for it rather than
+	 * clipping, and let it grow beyond that if a message is longer still. */
+	m_statusLabel->setMinimumHeight(m_statusLabel->fontMetrics().height() * 3 + 4);
+	m_statusLabel->setAlignment(Qt::AlignTop | Qt::AlignLeft);
+	m_statusLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::MinimumExpanding);
 	layout->addWidget(m_statusLabel);
 
 	layout->addStretch(1);
+
+	/* Report an honest minimum to the dock area so the dock cannot be sized
+	 * smaller than its contents can render. */
+	layout->setSizeConstraint(QLayout::SetMinimumSize);
 
 	connect(m_refreshButton, &QPushButton::clicked, this, &WindowSizerDock::refreshWindows);
 	connect(m_applyButton, &QPushButton::clicked, this, &WindowSizerDock::onApply);
@@ -296,6 +359,9 @@ void WindowSizerDock::refreshWindows()
 			continue;
 
 		m_windowCombo->addItem(QString::fromUtf8(name), QString::fromUtf8(value));
+		/* Full title as a tooltip, so an elided entry in the dropdown is
+		 * still identifiable when two windows share a prefix. */
+		m_windowCombo->setItemData(m_windowCombo->count() - 1, QString::fromUtf8(name), Qt::ToolTipRole);
 	}
 
 	obs_properties_destroy(props);

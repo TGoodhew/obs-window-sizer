@@ -51,7 +51,7 @@ constexpr const char *kProfileMain = "main";
  * than hardcoded: OBS 32 dropped the ffmpeg-based NVENC encoders on this
  * machine, and which ones are registered depends on driver and GPU.
  */
-std::string pickEncoder(std::string &note)
+std::string pickEncoder(std::string &note, bool logAll)
 {
 	std::vector<std::string> ids;
 	const char *id = nullptr;
@@ -66,7 +66,8 @@ std::string pickEncoder(std::string &note)
 			allIds += ", ";
 		allIds += candidate;
 	}
-	obs_log(LOG_INFO, "registered video/audio encoder types: %s", allIds.c_str());
+	if (logAll)
+		obs_log(LOG_INFO, "registered video/audio encoder types: %s", allIds.c_str());
 
 	auto isNvenc = [](const std::string &candidate) {
 		return candidate.find("nvenc") != std::string::npos;
@@ -126,6 +127,17 @@ bool persistCanvasSize(int width, int height, std::string &error)
 	return true;
 }
 
+std::string describeRecordingEncoder()
+{
+	std::string note;
+	const std::string id = pickEncoder(note, false);
+	if (id.empty())
+		return std::string();
+
+	const char *display = obs_encoder_get_display_name(id.c_str());
+	return display ? display : id;
+}
+
 std::string checkRecordingScaling(int canvasWidth, int canvasHeight)
 {
 	config_t *config = obs_frontend_get_profile_config();
@@ -165,7 +177,7 @@ RecordingConfigResult configureRecording(int cq)
 	}
 
 	std::string note;
-	const std::string encoderId = pickEncoder(note);
+	const std::string encoderId = pickEncoder(note, true);
 	if (encoderId.empty()) {
 		result.message = "No NVENC encoder is registered on this machine.";
 		return result;

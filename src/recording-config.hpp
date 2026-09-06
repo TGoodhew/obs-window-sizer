@@ -41,6 +41,14 @@ struct RecordingConfigResult {
 bool persistCanvasSize(int width, int height, std::string &error);
 
 /*
+ * Friendly name of the encoder that configureRecording() would choose, e.g.
+ * "NVIDIA NVENC HEVC", for showing in the UI so the user is not left guessing
+ * what "GPU encoding" resolved to. Empty if no NVENC encoder is registered, in
+ * which case the feature cannot do anything and the UI should say so.
+ */
+std::string describeRecordingEncoder();
+
+/*
  * Point the profile's recording output at HEVC NVENC with constant-quality
  * settings tuned for sharp UI text, and disable the recording rescale so the
  * file is written at the canvas size. Returns what was chosen and whether a
