@@ -22,14 +22,14 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       # A cold configure fetches the obs-deps and Qt bundles and then builds
       # libobs and obs-frontend-api from the OBS source tree, in both Debug and
       # Release. That is roughly 1 GB of downloads and several minutes, so it is
       # cached against the versions pinned in buildspec.json.
       - name: Cache dependencies
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .deps
           key: deps-${{ runner.os }}-${{ hashFiles('buildspec.json') }}
@@ -58,7 +58,7 @@ jobs:
         run: pwsh -File ./package.ps1 -SkipBuild
 
       - name: Upload plugin
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: obs-window-sizer-windows-x64
           path: dist/*.zip
@@ -70,7 +70,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       # Pinned to the same version used locally. clang-format output differs
       # between major versions, so an unpinned runner would fail on formatting
