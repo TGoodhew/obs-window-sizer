@@ -208,8 +208,7 @@ RecordingConfigResult configureRecording(int cq)
 	bfree(profilePath);
 
 	const bool saved = obs_data_save_json_safe(settings, encoderFile.c_str(), "tmp", "bak");
-	obs_log(LOG_INFO, "recordEncoder.json (%s): %s", saved ? "written" : "FAILED",
-		obs_data_get_json(settings));
+	obs_log(LOG_INFO, "recordEncoder.json (%s): %s", saved ? "written" : "FAILED", obs_data_get_json(settings));
 	obs_data_release(settings);
 
 	if (!saved) {

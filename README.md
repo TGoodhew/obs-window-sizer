@@ -144,6 +144,11 @@ left alone in that case.
 - Some text in the dock is still clipped
   ([#7](https://github.com/TGoodhew/obs-window-sizer/issues/7)).
 
+- **English only.** Localisation is out of scope - the UI strings live in
+  `data/locale/en-US.ini`, but status and error messages are hardcoded English,
+  so a translation would be half a job. Please do not start one expecting it to
+  be merged ([#14](https://github.com/TGoodhew/obs-window-sizer/issues/14)).
+
 All open work is on the [issue tracker](https://github.com/TGoodhew/obs-window-sizer/issues).
 
 ## Building

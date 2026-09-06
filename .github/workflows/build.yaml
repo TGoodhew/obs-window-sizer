@@ -1,0 +1,89 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows x64
+    # Pinned rather than windows-latest: the build needs a Visual Studio the
+    # CI preset knows about, and a runner image rolling forward under us would
+    # break the generator without warning.
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # A cold configure fetches the obs-deps and Qt bundles and then builds
+      # libobs and obs-frontend-api from the OBS source tree, in both Debug and
+      # Release. That is roughly 1 GB of downloads and several minutes, so it is
+      # cached against the versions pinned in buildspec.json.
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: .deps
+          key: deps-${{ runner.os }}-${{ hashFiles('buildspec.json') }}
+          restore-keys: deps-${{ runner.os }}-
+
+      - name: Configure
+        run: cmake --preset windows-ci-x64
+
+      - name: Build
+        run: cmake --build --preset windows-ci-x64
+
+      # Guard against the build silently producing nothing useful.
+      - name: Verify output
+        shell: pwsh
+        run: |
+          $dll = 'build_x64/rundir/RelWithDebInfo/obs-window-sizer.dll'
+          if (-not (Test-Path $dll)) { throw "No plugin DLL at $dll" }
+          $item = Get-Item $dll
+          Write-Host "Built $($item.Name), $($item.Length) bytes"
+          $locale = 'build_x64/rundir/RelWithDebInfo/obs-window-sizer/locale/en-US.ini'
+          if (-not (Test-Path $locale)) { throw "No locale file at $locale" }
+          if ((Get-Item $locale).Length -eq 0) { throw 'Locale file is empty' }
+
+      - name: Package
+        shell: pwsh
+        run: pwsh -File ./package.ps1 -SkipBuild
+
+      - name: Upload plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: obs-window-sizer-windows-x64
+          path: dist/*.zip
+          if-no-files-found: error
+
+  format:
+    name: clang-format
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Pinned to the same version used locally. clang-format output differs
+      # between major versions, so an unpinned runner would fail on formatting
+      # that is correct everywhere else.
+      - name: Install clang-format
+        run: pip install clang-format==23.1.0
+
+      - name: Check formatting
+        run: |
+          clang-format --version
+          # Only our own sources; cmake/ and plugin-support.* come from
+          # obs-plugintemplate and are not ours to reformat.
+          files=$(git ls-files 'src/plugin-main.cpp' 'src/window-sizer-dock.*' \
+                               'src/win32-window.*' 'src/recording-config.*')
+          echo "Checking: $files"
+          clang-format --dry-run --Werror $files

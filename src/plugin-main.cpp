@@ -73,16 +73,15 @@ static void onFinishedLoadingWarn(enum obs_frontend_event event, void *)
 	auto *mainWindow = static_cast<QWidget *>(obs_frontend_get_main_window());
 
 	const QString text =
-		QStringLiteral(
-			"<p><b>Window Sizer has disabled itself.</b></p>"
-			"<p>This plugin was built for <b>OBS Studio %1.x</b>, but you are running "
-			"<b>OBS %2</b>.</p>"
-			"<p>Between major versions OBS can change the shape of the data structures "
-			"this plugin hands to it. That crashes OBS rather than failing cleanly, so "
-			"the dock has not been registered.</p>"
-			"<p>Install a build made for your version of OBS, or rebuild from source:<br>"
-			"<a href=\"https://github.com/TGoodhew/obs-window-sizer/releases\">"
-			"github.com/TGoodhew/obs-window-sizer/releases</a></p>")
+		QStringLiteral("<p><b>Window Sizer has disabled itself.</b></p>"
+			       "<p>This plugin was built for <b>OBS Studio %1.x</b>, but you are running "
+			       "<b>OBS %2</b>.</p>"
+			       "<p>Between major versions OBS can change the shape of the data structures "
+			       "this plugin hands to it. That crashes OBS rather than failing cleanly, so "
+			       "the dock has not been registered.</p>"
+			       "<p>Install a build made for your version of OBS, or rebuild from source:<br>"
+			       "<a href=\"https://github.com/TGoodhew/obs-window-sizer/releases\">"
+			       "github.com/TGoodhew/obs-window-sizer/releases</a></p>")
 			.arg(LIBOBS_API_MAJOR_VER)
 			.arg(QString::fromUtf8(obs_get_version_string()));
 

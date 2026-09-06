@@ -197,8 +197,8 @@ void *findWindow(const std::string &obsWindowSetting, int priority)
 	ms_build_window_strings(obsWindowSetting.c_str(), &windowClass, &title, &exe);
 
 	DpiScope dpi;
-	HWND hwnd = ms_find_window_top_level(INCLUDE_MINIMIZED, (enum window_priority)priority, windowClass, title,
-					     exe);
+	HWND hwnd =
+		ms_find_window_top_level(INCLUDE_MINIMIZED, (enum window_priority)priority, windowClass, title, exe);
 
 	bfree(windowClass);
 	bfree(title);

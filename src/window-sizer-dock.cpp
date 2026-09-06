@@ -23,6 +23,7 @@ See LICENSE in the project root for the full licence text.
 #include <QMetaObject>
 #include <QPushButton>
 #include <QSignalBlocker>
+#include <QStringList>
 #include <QSpinBox>
 #include <QStyleOptionComboBox>
 #include <QStylePainter>
@@ -82,9 +83,9 @@ struct Preset {
  * 4K here is UHD (3840x2160), not DCI 4K (4096x2160).
  */
 constexpr Preset kPresets[] = {
-	{"720p HD - 1280 x 720", 1280, 720},       {"1080p FHD - 1920 x 1080", 1920, 1080},
+	{"720p HD - 1280 x 720", 1280, 720},        {"1080p FHD - 1920 x 1080", 1920, 1080},
 	{"1440p 2K QHD - 2560 x 1440", 2560, 1440}, {"2160p 4K UHD - 3840 x 2160", 3840, 2160},
-	{"Vertical - 1080 x 1920", 1080, 1920},    {"Square - 1080 x 1080", 1080, 1080},
+	{"Vertical - 1080 x 1920", 1080, 1920},     {"Square - 1080 x 1080", 1080, 1080},
 };
 
 /* 1080p, the common case, rather than whichever preset happens to sort first. */
@@ -114,6 +115,34 @@ bool findCaptureItem(obs_scene_t *, obs_sceneitem_t *item, void *param)
 	obs_sceneitem_addref(item);
 	found->item = item;
 	return false; /* stop enumerating */
+}
+
+/*
+ * OBS 32 supports additional canvases alongside the main one. This plugin only
+ * matches the main canvas - obs_reset_video() and the profile Video keys are
+ * both main-canvas only - so if the user has more, say so rather than silently
+ * doing half the job. See issue #9.
+ */
+QString describeExtraCanvases()
+{
+	struct obs_frontend_canvas_list canvases = {};
+	obs_frontend_get_canvases(&canvases);
+
+	QStringList names;
+	for (size_t i = 0; i < canvases.canvases.num; ++i) {
+		const char *name = obs_canvas_get_name(canvases.canvases.array[i]);
+		if (name && *name)
+			names << QString::fromUtf8(name);
+	}
+	obs_frontend_canvas_list_free(&canvases);
+
+	if (names.size() < 2)
+		return QString();
+
+	return QStringLiteral(" Note: this scene collection has %1 canvases (%2). Only the main canvas "
+			      "was matched; the others are unchanged.")
+		.arg(names.size())
+		.arg(names.join(QStringLiteral(", ")));
 }
 
 /*
@@ -188,12 +217,12 @@ void WindowSizerDock::buildUi()
 		/* Full title first, since that is the bit that gets elided, then the
 		 * explanation of where the list comes from. */
 		const QString full = m_windowCombo->currentText();
-		m_windowCombo->setToolTip(full.isEmpty()
-						  ? QString::fromUtf8(obs_module_text("WindowSizer.TargetWindow.Tip"))
-						  : QStringLiteral("<p><b>%1</b></p>%2")
-							    .arg(full.toHtmlEscaped(),
-								 QString::fromUtf8(obs_module_text(
-									 "WindowSizer.TargetWindow.Tip"))));
+		m_windowCombo->setToolTip(
+			full.isEmpty()
+				? QString::fromUtf8(obs_module_text("WindowSizer.TargetWindow.Tip"))
+				: QStringLiteral("<p><b>%1</b></p>%2")
+					  .arg(full.toHtmlEscaped(),
+					       QString::fromUtf8(obs_module_text("WindowSizer.TargetWindow.Tip"))));
 	});
 	m_windowCombo->setToolTip(obs_module_text("WindowSizer.TargetWindow.Tip"));
 
@@ -254,8 +283,7 @@ void WindowSizerDock::buildUi()
 	const std::string encoderName = ws::describeRecordingEncoder();
 	if (encoderName.empty()) {
 		m_configureRecordingCheck->setEnabled(false);
-		m_configureRecordingCheck->setToolTip(
-			obs_module_text("WindowSizer.ConfigureRecording.Unavailable"));
+		m_configureRecordingCheck->setToolTip(obs_module_text("WindowSizer.ConfigureRecording.Unavailable"));
 	} else {
 		m_configureRecordingCheck->setToolTip(
 			QString::fromUtf8(obs_module_text("WindowSizer.ConfigureRecording.Tip"))
@@ -637,8 +665,8 @@ void WindowSizerDock::onApply()
 	} else {
 		const ws::RecordingConfigResult rec = ws::configureRecording(m_cqSpin->value());
 		if (!rec.ok) {
-			recordingNote = QStringLiteral(" Recording NOT configured: %1")
-						.arg(QString::fromStdString(rec.message));
+			recordingNote =
+				QStringLiteral(" Recording NOT configured: %1").arg(QString::fromStdString(rec.message));
 		} else if (rec.requiresRestart) {
 			recordingNote = QStringLiteral(" Recording set to %1 - restart OBS for the "
 						       "Simple-to-Advanced output mode switch to take effect.")
@@ -657,6 +685,10 @@ void WindowSizerDock::onApply()
 	 * would quietly break the 1:1 promise - but say so, because an odd
 	 * canvas can upset an encoder.
 	 */
+	const QString canvasNote = describeExtraCanvases();
+	if (!canvasNote.isEmpty())
+		obs_log(LOG_WARNING, "%s", canvasNote.trimmed().toUtf8().constData());
+
 	QString parityNote;
 	if ((outcome.achievedWidth % 4) != 0 || (outcome.achievedHeight % 2) != 0) {
 		parityNote = QStringLiteral(" Note: %1x%2 is not a multiple of 4x2, which some encoders "
@@ -672,7 +704,7 @@ void WindowSizerDock::onApply()
 				 .arg(outcome.achievedWidth)
 				 .arg(outcome.achievedHeight)
 				 .arg(clientArea ? QStringLiteral("client area") : QStringLiteral("visible frame"));
-		setStatus(status + parityNote + recordingNote, false);
+		setStatus(status + canvasNote + parityNote + recordingNote, false);
 	} else {
 		status = QStringLiteral("Window refused %1 x %2 and settled at %3 x %4 "
 					"(minimum size or fixed aspect ratio). Canvas set to %3 x %4 to match.")
@@ -680,7 +712,7 @@ void WindowSizerDock::onApply()
 				 .arg(outcome.requestedHeight)
 				 .arg(outcome.achievedWidth)
 				 .arg(outcome.achievedHeight);
-		setStatus(status + parityNote + recordingNote, true);
+		setStatus(status + canvasNote + parityNote + recordingNote, true);
 	}
 
 	if (outcome.restoredFromMaximized)
