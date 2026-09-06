@@ -24,6 +24,9 @@ See LICENSE in the project root for the full licence text.
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QSpinBox>
+#include <QStyleOptionComboBox>
+#include <QStylePainter>
+#include <QTimer>
 #include <QVBoxLayout>
 
 #include <cstring>
@@ -37,6 +40,34 @@ constexpr const char *kWindowCaptureId = "window_capture";
 
 /* The name given to a capture source when the plugin has to create one. */
 constexpr const char *kCreatedSourceName = "Window Sizer Capture";
+
+/*
+ * QComboBox truncates its closed-state text rather than eliding it, and
+ * setTextElideMode() only affects the dropdown list. Window titles are
+ * routinely longer than any sensible dock width, so paint the closed state
+ * ourselves with middle elision - that keeps the "[executable.exe]" prefix and
+ * the tail of the title, which is what tells two similar windows apart.
+ */
+class ElidingComboBox : public QComboBox {
+public:
+	explicit ElidingComboBox(QWidget *parent = nullptr) : QComboBox(parent) {}
+
+protected:
+	void paintEvent(QPaintEvent *) override
+	{
+		QStylePainter painter(this);
+		painter.setPen(palette().color(QPalette::Text));
+
+		QStyleOptionComboBox opt;
+		initStyleOption(&opt);
+		painter.drawComplexControl(QStyle::CC_ComboBox, opt);
+
+		const QRect textRect =
+			style()->subControlRect(QStyle::CC_ComboBox, &opt, QStyle::SC_ComboBoxEditField, this);
+		opt.currentText = painter.fontMetrics().elidedText(opt.currentText, Qt::ElideMiddle, textRect.width());
+		painter.drawControl(QStyle::CE_ComboBoxLabel, opt);
+	}
+};
 
 struct Preset {
 	const char *label;
@@ -125,14 +156,28 @@ WindowSizerDock::~WindowSizerDock()
 	obs_frontend_remove_event_callback(onFrontendEvent, this);
 }
 
+void WindowSizerDock::scheduleRefresh()
+{
+	/* Restarting the timer on each request means a burst of frontend events
+	 * collapses into one refresh shortly after the last of them. */
+	m_refreshTimer->start();
+}
+
 void WindowSizerDock::buildUi()
 {
+	/* Short enough to feel immediate, long enough to swallow the startup
+	 * burst of FINISHED_LOADING + SCENE_CHANGED + SCENE_LIST_CHANGED. */
+	m_refreshTimer = new QTimer(this);
+	m_refreshTimer->setSingleShot(true);
+	m_refreshTimer->setInterval(150);
+	connect(m_refreshTimer, &QTimer::timeout, this, &WindowSizerDock::refreshWindows);
+
 	auto *layout = new QVBoxLayout(this);
 
 	auto *form = new QFormLayout();
 
 	/* Target window ------------------------------------------------- */
-	m_windowCombo = new QComboBox(this);
+	m_windowCombo = new ElidingComboBox(this);
 	m_windowCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
 	m_windowCombo->setMinimumContentsLength(16);
 	/* Window titles are routinely longer than any sensible dock width. Elide
@@ -140,10 +185,20 @@ void WindowSizerDock::buildUi()
 	 * stay visible, and keep the full text available as a tooltip. */
 	m_windowCombo->view()->setTextElideMode(Qt::ElideMiddle);
 	connect(m_windowCombo, &QComboBox::currentIndexChanged, this, [this](int) {
-		m_windowCombo->setToolTip(m_windowCombo->currentText());
+		/* Full title first, since that is the bit that gets elided, then the
+		 * explanation of where the list comes from. */
+		const QString full = m_windowCombo->currentText();
+		m_windowCombo->setToolTip(full.isEmpty()
+						  ? QString::fromUtf8(obs_module_text("WindowSizer.TargetWindow.Tip"))
+						  : QStringLiteral("<p><b>%1</b></p>%2")
+							    .arg(full.toHtmlEscaped(),
+								 QString::fromUtf8(obs_module_text(
+									 "WindowSizer.TargetWindow.Tip"))));
 	});
+	m_windowCombo->setToolTip(obs_module_text("WindowSizer.TargetWindow.Tip"));
 
 	m_refreshButton = new QPushButton(obs_module_text("WindowSizer.Refresh"), this);
+	m_refreshButton->setToolTip(obs_module_text("WindowSizer.Refresh.Tip"));
 
 	auto *windowRow = new QHBoxLayout();
 	windowRow->addWidget(m_windowCombo, 1);
@@ -156,6 +211,7 @@ void WindowSizerDock::buildUi()
 		m_presetCombo->addItem(QString::fromUtf8(preset.label));
 	m_presetCombo->addItem(obs_module_text("WindowSizer.Custom"));
 	m_presetCombo->setCurrentIndex(kDefaultPresetIndex);
+	m_presetCombo->setToolTip(obs_module_text("WindowSizer.Size.Tip"));
 	form->addRow(obs_module_text("WindowSizer.Size"), m_presetCombo);
 
 	m_widthSpin = new QSpinBox(this);
@@ -166,10 +222,19 @@ void WindowSizerDock::buildUi()
 	m_heightSpin->setRange(1, 16384);
 	m_heightSpin->setValue(kPresets[kDefaultPresetIndex].height);
 
+	const QString sizeTip = QString::fromUtf8(obs_module_text("WindowSizer.Size.Spin.Tip"));
+	m_widthSpin->setToolTip(sizeTip);
+	m_heightSpin->setToolTip(sizeTip);
+
+	auto *widthLabel = new QLabel(obs_module_text("WindowSizer.Width"), this);
+	auto *heightLabel = new QLabel(obs_module_text("WindowSizer.Height"), this);
+	widthLabel->setToolTip(sizeTip);
+	heightLabel->setToolTip(sizeTip);
+
 	auto *sizeRow = new QHBoxLayout();
-	sizeRow->addWidget(new QLabel(obs_module_text("WindowSizer.Width"), this));
+	sizeRow->addWidget(widthLabel);
 	sizeRow->addWidget(m_widthSpin, 1);
-	sizeRow->addWidget(new QLabel(obs_module_text("WindowSizer.Height"), this));
+	sizeRow->addWidget(heightLabel);
 	sizeRow->addWidget(m_heightSpin, 1);
 	form->addRow(QString(), sizeRow);
 
@@ -177,6 +242,7 @@ void WindowSizerDock::buildUi()
 	m_clientAreaCheck = new QCheckBox(obs_module_text("WindowSizer.SizeClientArea"), this);
 	/* Matches the window_capture source default, which is client_area on. */
 	m_clientAreaCheck->setChecked(true);
+	m_clientAreaCheck->setToolTip(obs_module_text("WindowSizer.SizeClientArea.Tip"));
 	form->addRow(QString(), m_clientAreaCheck);
 
 	/* Recording ------------------------------------------------------ */
@@ -189,21 +255,10 @@ void WindowSizerDock::buildUi()
 	if (encoderName.empty()) {
 		m_configureRecordingCheck->setEnabled(false);
 		m_configureRecordingCheck->setToolTip(
-			QStringLiteral("Unavailable: no NVIDIA NVENC encoder is registered on this machine."));
+			obs_module_text("WindowSizer.ConfigureRecording.Unavailable"));
 	} else {
 		m_configureRecordingCheck->setToolTip(
-			QStringLiteral(
-				"<p>Rewrites OBS's recording settings so the recorded file is as close "
-				"to what you see as is practical.</p>"
-				"<p><b>Encoder:</b> %1<br>"
-				"Constant quality (CQP), two-pass quarter-res, and psycho-visual AQ "
-				"turned off so static UI text stays sharp.<br>"
-				"Recording rescale is switched off, so the file is exactly the window "
-				"size with no resampling.</p>"
-				"<p>Near-lossless rather than truly lossless: OBS records 4:2:0 colour, "
-				"which softens coloured text edges slightly.</p>"
-				"<p>This edits your OBS profile. It does not start a recording - OBS's "
-				"own Record button still does that.</p>")
+			QString::fromUtf8(obs_module_text("WindowSizer.ConfigureRecording.Tip"))
 				.arg(QString::fromStdString(encoderName)));
 	}
 	form->addRow(QString(), m_configureRecordingCheck);
@@ -226,10 +281,7 @@ void WindowSizerDock::buildUi()
 	m_cqSpin->setRange(10, 30);
 	m_cqSpin->setValue(16);
 	m_cqSpin->setEnabled(false);
-	m_cqSpin->setToolTip(QStringLiteral(
-		"<p>Constant quality level. Lower is better quality and a bigger file.<br>"
-		"16 is visually lossless for UI content; 18-20 is noticeably smaller and "
-		"still good.</p>"));
+	m_cqSpin->setToolTip(obs_module_text("WindowSizer.CQ.Tip"));
 
 	auto *cqRow = new QHBoxLayout();
 	auto *cqLabel = new QLabel(obs_module_text("WindowSizer.CQ"), this);
@@ -243,12 +295,14 @@ void WindowSizerDock::buildUi()
 
 	/* Apply ---------------------------------------------------------- */
 	m_applyButton = new QPushButton(obs_module_text("WindowSizer.Apply"), this);
+	m_applyButton->setToolTip(obs_module_text("WindowSizer.Apply.Tip"));
 	layout->addWidget(m_applyButton);
 
 	/* Status --------------------------------------------------------- */
 	m_statusLabel = new QLabel(obs_module_text("WindowSizer.Status.Ready"), this);
 	m_statusLabel->setWordWrap(true);
 	m_statusLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+	m_statusLabel->setToolTip(obs_module_text("WindowSizer.Status.Tip"));
 	/* Apply can produce a long message - a refusal, plus an odd-dimension
 	 * warning, plus the recording result. Reserve room for it rather than
 	 * clipping, and let it grow beyond that if a message is longer still. */
@@ -646,7 +700,8 @@ void WindowSizerDock::onFrontendEvent(enum obs_frontend_event event, void *data)
 	}
 
 	auto *dock = static_cast<WindowSizerDock *>(data);
-	/* Queued so the work happens on the Qt thread no matter which thread
-	 * the frontend raised the event on. */
-	QMetaObject::invokeMethod(dock, "refreshWindows", Qt::QueuedConnection);
+	/* Queued so the work happens on the Qt thread no matter which thread the
+	 * frontend raised the event on, and debounced because OBS raises several
+	 * of these within a few milliseconds at startup. */
+	QMetaObject::invokeMethod(dock, "scheduleRefresh", Qt::QueuedConnection);
 }

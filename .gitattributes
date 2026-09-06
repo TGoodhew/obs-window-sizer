@@ -1,0 +1,42 @@
+# Normalise line endings in the repository rather than leaving it to each
+# contributor's core.autocrlf setting. Without this, git warns on every commit
+# and whitespace-only diffs appear when people on different settings touch the
+# same file.
+
+# Default: detect text, store LF in the repository, check out native.
+* text=auto eol=lf
+
+# Windows scripting. These work fine with LF, but Windows tooling and editors
+# are friendlier with CRLF, and these are the files most likely to be opened in
+# something other than an editor that copes.
+*.ps1   text eol=crlf
+*.psm1  text eol=crlf
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# Explicitly text, so translations and build files always diff cleanly.
+*.c      text
+*.cpp    text
+*.h      text
+*.hpp    text
+*.in     text
+*.cmake  text
+*.json   text
+*.md     text
+*.ini    text
+*.rc     text
+*.yaml   text
+*.yml    text
+CMakeLists.txt      text
+.clang-format       text
+.gitattributes      text
+.gitignore          text
+
+# Never touch these.
+*.png  binary
+*.jpg  binary
+*.ico  binary
+*.zip  binary
+*.dll  binary
+*.pdb  binary
+*.lib  binary

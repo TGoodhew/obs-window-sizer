@@ -17,6 +17,7 @@ class QComboBox;
 class QLabel;
 class QPushButton;
 class QSpinBox;
+class QTimer;
 
 /*
  * The dock. OBS takes ownership of this widget when it is handed to
@@ -36,6 +37,11 @@ public slots:
 	void refreshWindows();
 
 private slots:
+	/* Coalesces refresh requests. OBS raises several frontend events in
+	 * quick succession at startup and on scene changes, and refreshing on
+	 * each one rebuilds the whole window list needlessly. */
+	void scheduleRefresh();
+
 	void onPresetChanged(int index);
 	void onSizeEdited();
 	void onApply();
@@ -60,6 +66,7 @@ private:
 	QSpinBox *m_cqSpin = nullptr;
 	QPushButton *m_applyButton = nullptr;
 	QLabel *m_statusLabel = nullptr;
+	QTimer *m_refreshTimer = nullptr;
 
 	/* Guards the preset combo from flipping to Custom while we are the ones
 	 * writing the spin boxes. */
